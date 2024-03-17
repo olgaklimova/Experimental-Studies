@@ -1,28 +1,33 @@
+import sys
 import pandas as pd
 import pickle
 import category_encoders as ce
-from sklearn.metrics import r2_score
 
-
+## test_df не должен содержать строки с неизвестными значениями и строки при которых  'State' != 'COMPLETED' ##
 class SKPredModel:
-    def __init__(self):
-        
-        #Инициализация модели №1
-        with open('model_1.pkl', 'rb') as f:
+    def __init__(self, model_path):
+        #Инициализация модели
+        with open(model_path, 'rb') as f:
           self.model = pickle.load(f)
-            
-        #Инициализация модели №2
-        #with open('model_2.pkl', 'rb') as f:
-        # self.model = pickle.load(f)
         
     def prepare_df(self, test_df):
-        
         data = test_df
-        #Удаление строк с неизвестными значениями
-        data = data.dropna()
+        try:
+           #Проверяем, чтобы не было строк с неизвестными значениями
+           assert not data.isnull().values.any(), "Обнаружены строки с неизвестными значениями, пожалуйста заполните их"
+           #Проверяем, чтобы все задачи в тестовых данных были успешно завершены
+           assert (data['State'] == 'COMPLETED').all(), "Обнаружены значения, отличные от 'COMPLETED' в столбце 'State', пожалуйста исправьте это"
+        
+        except AssertionError as e:
+           #Если возникает AssertionError, вывести сообщение об ошибке и завершить работу
+           print(e)
+           sys.exit(1)
+        
         #Удаление колонки с индексами строк
         first_column_name = data.columns[0]
         data = data.drop(columns=[first_column_name])
+        #Удаление колонки 'State'
+        data = data.drop(columns=['State'])
         
         #Преобразование категориальных признаков
         #One-Hot Encoding
@@ -37,8 +42,7 @@ class SKPredModel:
         data = pd.concat([data, one_hot_encoding_2_data], axis=1)
         data = data.drop(columns=['Partition'])
     
-
-        # Применение parse_time к каждой строке столбца
+        #Применение parse_time к каждой строке столбца
         data['Elapsed_Seconds'] = data['Elapsed'].apply(self.parse_time)
         data = data.drop(columns=['Elapsed'])
         data['Timelimit_Seconds'] = data['Timelimit'].apply(self.parse_time)
@@ -62,12 +66,9 @@ class SKPredModel:
         data['TimeWeit_Seconds'] = data['TimeWeit'].apply(self.parse_time_new)
         data = data.drop(columns=['TimeWeit'])
         
-        #Удаляем ExitCode
+        #Удаление ExitCode
         data = data.drop(columns=['ExitCode'])
-        #Удаляем все неудачно завершенные задачи
-        data = data.loc[data['State'] == 'COMPLETED']
-        data = data.drop(columns=['State'])
-        
+         
         #Сортировка по UID
         data = data.sort_values(by='UID')
         
@@ -78,17 +79,17 @@ class SKPredModel:
         #размеры окон
         window_sizes = [2, 4, 8, 16, 32, 64]
         for window_size in window_sizes: 
-            #рассчитываем скользящее среднее
-            rolling_mean = data.groupby('UID')['Elapsed_Seconds'].rolling(window=window_size, min_periods=1).mean()
-            #преобразуем rolling_mean в DataFrame
-            rolling_mean_df = rolling_mean.reset_index(level=0, drop=True)
-            #добавляем столбец со скользящим средним в исходный DataFrame
-            data[f'Mean_{window_size}_Elapsed_Seconds'] = rolling_mean_df
+           #рассчитываем скользящее среднее
+           rolling_mean = data.groupby('UID')['Elapsed_Seconds'].rolling(window=window_size, min_periods=1).mean()
+           #преобразуем rolling_mean в DataFrame
+           rolling_mean_df = rolling_mean.reset_index(level=0, drop=True)
+           #добавляем столбец со скользящим средним в исходный DataFrame
+           data[f'Mean_{window_size}_Elapsed_Seconds'] = rolling_mean_df
         
         #Удаление значений Y
         data = data.drop(columns=['Elapsed_Seconds'])
         return data
-    
+     
     def parse_time(self, time_str):
         #Преобразование форматов столцов Elapsed_Seconds и Timelimit_Seconds
         if '-' in time_str:
@@ -112,8 +113,16 @@ class SKPredModel:
         Y_pred = self.model.predict(prepared_data)
         return pd.Series(Y_pred)
 
-#Проверка созданного класса
-model = SKPredModel()
-test_df = pd.read_csv('C:\\Users\\Unicorn\\Desktop\\SK_LGBM_Klimova\\train_w_areas_st_till_june.csv')
-prepared_data = model.prepare_df(test_df)
-Y_pred = model.predict(prepared_data)
+if __name__ == '__main__':
+    #Проверка созданного класса
+    model_path = 'model_1.pkl'
+    #model_path = 'model_2.pkl'
+    model = SKPredModel(model_path)
+
+    test_df = pd.read_csv('C:\\Users\\Unicorn\\Desktop\\SK_LGBM_Klimova\\train_w_areas_st_till_june.csv')
+    #Удаляем строки с неизвестными значениями и строки при которых  'State' != 'COMPLETED'
+    test_df = test_df.dropna()
+    test_df = test_df.loc[test_df['State'] == 'COMPLETED']
+    prepared_data = model.prepare_df(test_df)
+
+    Y_pred = model.predict(prepared_data)
