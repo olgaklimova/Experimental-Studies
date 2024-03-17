@@ -12,32 +12,31 @@ class SKPredModel:
         
     def prepare_df(self, test_df):
         data = test_df
-        try:
-           #Проверяем, чтобы не было строк с неизвестными значениями
-           assert not data.isnull().values.any(), "Обнаружены строки с неизвестными значениями, пожалуйста заполните их"
-           #Проверяем, чтобы все задачи в тестовых данных были успешно завершены
-           assert (data['State'] == 'COMPLETED').all(), "Обнаружены значения, отличные от 'COMPLETED' в столбце 'State', пожалуйста исправьте это"
+        #Проверяем, чтобы не было строк с неизвестными значениями
+        assert not data.isnull().values.any(), "Обнаружены строки с неизвестными значениями, пожалуйста заполните их"
+        #Проверяем, чтобы все задачи в тестовых данных были успешно завершены
+        assert (data['State'] == 'COMPLETED').all(), "Обнаружены значения, отличные от 'COMPLETED' в столбце 'State', пожалуйста исправьте это"
         
-        except AssertionError as e:
-           #Если возникает AssertionError, вывести сообщение об ошибке и завершить работу
-           print(e)
-           sys.exit(1)
-        
-        #Удаление колонки с индексами строк
-        first_column_name = data.columns[0]
-        data = data.drop(columns=[first_column_name])
         #Удаление колонки 'State'
         data = data.drop(columns=['State'])
         
         #Преобразование категориальных признаков
         #One-Hot Encoding
         #признак "Area"
-        one_hot_encoding_1_data = pd.get_dummies(data['Area'])
+        one_hot_encoding_1_data = pd.get_dummies(data['Area'], dtype=int)
         #добавление новых колонок к исходному датафрейму
         data = pd.concat([data, one_hot_encoding_1_data], axis=1)
         data = data.drop(columns=['Area'])
         #признак "Partition"
-        one_hot_encoding_2_data = pd.get_dummies(data['Partition'])
+        unique_partition = data['Partition'].unique()
+        #Обработка случая, когда нет одного partition из 'cascade', 'g2', 'nv', 'tornado', 'tornado-k40'
+        partition_arr = ['cascade', 'g2', 'nv', 'tornado', 'tornado-k40']
+        n = len(partition_arr)
+        if len(unique_partition) != n:
+           #Проверяем, каких колонок нет из 'cascade', 'g2', 'nv', 'tornado', 'tornado-k40'
+           missing_partition = [i for i in partition_arr if i not in unique_partition]
+           data = data.reindex(columns = data.columns.tolist() + missing_partition, fill_value=0)
+        one_hot_encoding_2_data = pd.get_dummies(data['Partition'], dtype=int)
         #добавление новых колонок к исходному датафрейму
         data = pd.concat([data, one_hot_encoding_2_data], axis=1)
         data = data.drop(columns=['Partition'])
@@ -119,7 +118,7 @@ if __name__ == '__main__':
     #model_path = 'model_2.pkl'
     model = SKPredModel(model_path)
 
-    test_df = pd.read_csv('C:\\Users\\Unicorn\\Desktop\\SK_LGBM_Klimova\\train_w_areas_st_till_june.csv')
+    test_df = pd.read_csv('C:\\Users\\Unicorn\\Desktop\\SK_LGBM_Klimova\\train_w_areas_st_till_june.csv', index_col=0)
     #Удаляем строки с неизвестными значениями и строки при которых  'State' != 'COMPLETED'
     test_df = test_df.dropna()
     test_df = test_df.loc[test_df['State'] == 'COMPLETED']
