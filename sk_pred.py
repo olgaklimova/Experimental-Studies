@@ -11,6 +11,7 @@ class SKPredModel:
           self.model = pickle.load(f)
         
     def prepare_df(self, test_df):
+        src_index = test_df.index
         data = test_df
         #Проверяем, чтобы не было строк с неизвестными значениями
         assert not data.isnull().values.any(), "Обнаружены строки с неизвестными значениями, пожалуйста заполните их"
@@ -23,6 +24,14 @@ class SKPredModel:
         #Преобразование категориальных признаков
         #One-Hot Encoding
         #признак "Area"
+        unique_area = data['Area'].unique()
+        #Обработка случая, когда нет одной area из 'astrophys' 'phys' 'mech' 'energ' 'mach' 'radiophys' 'biophys' 'geophys' 'bioinf' 'it'
+        area_arr = ['astrophys', 'phys', 'mech', 'energ', 'mach', 'radiophys', 'biophys', 'geophys', 'bioinf', 'it']
+        n = len(area_arr)
+        if len(unique_area) != n:
+           #Проверяем, каких колонок нет из 'astrophys' 'phys' 'mech' 'energ' 'mach' 'radiophys' 'biophys' 'geophys' 'bioinf' 'it'
+           missing_area = [i for i in area_arr if i not in unique_area]
+           data = data.reindex(columns = data.columns.tolist() + missing_area, fill_value=0)
         one_hot_encoding_1_data = pd.get_dummies(data['Area'], dtype=int)
         #добавление новых колонок к исходному датафрейму
         data = pd.concat([data, one_hot_encoding_1_data], axis=1)
@@ -87,7 +96,7 @@ class SKPredModel:
         
         #Удаление значений Y
         data = data.drop(columns=['Elapsed_Seconds'])
-        return data
+        return data.loc[src_index]
      
     def parse_time(self, time_str):
         #Преобразование форматов столцов Elapsed_Seconds и Timelimit_Seconds
@@ -106,8 +115,11 @@ class SKPredModel:
         hours, minutes, seconds = map(int, time.split(':'))
         result = int(days)*86400 + hours*3600 + minutes*60 + seconds
         return result
-    
+      
     def predict(self, prepared_data):
+        for key in self.model.feature_name():
+          assert key in prepared_data.columns, f"{key} column missed in test_df"
+          
         #Предсказание модели
         Y_pred = self.model.predict(prepared_data)
         return pd.Series(Y_pred)
@@ -117,11 +129,11 @@ if __name__ == '__main__':
     model_path = 'model_1.pkl'
     #model_path = 'model_2.pkl'
     model = SKPredModel(model_path)
-
+    
     test_df = pd.read_csv('C:\\Users\\Unicorn\\Desktop\\SK_LGBM_Klimova\\train_w_areas_st_till_june.csv', index_col=0)
     #Удаляем строки с неизвестными значениями и строки при которых  'State' != 'COMPLETED'
     test_df = test_df.dropna()
     test_df = test_df.loc[test_df['State'] == 'COMPLETED']
     prepared_data = model.prepare_df(test_df)
-
+    
     Y_pred = model.predict(prepared_data)
