@@ -63,6 +63,10 @@ class SKPredModel:
         data = pd.concat([data, target_encoding_1_data], axis=1)
         data = data.drop(columns=['JobName'])
         
+        #Сортировка по дате
+        data['datetime_column'] = pd.to_datetime(data['Start'])
+        data = data.sort_values(by='datetime_column')
+
         #Создание нового признака TimeWeit
         data['Submit'] = pd.to_datetime(data['Submit'])
         data['Start'] = pd.to_datetime(data['Start'])
@@ -77,23 +81,29 @@ class SKPredModel:
         #Удаление ExitCode
         data = data.drop(columns=['ExitCode'])
          
-        #Сортировка по UID
-        data = data.sort_values(by='UID')
+        #Сортировка по datetime_column и UID
+        data = data.sort_values(by=['datetime_column','UID'])
         
         #Создание столбца Mean_Elapsed_Seconds со средним значением Elapsed_Seconds по UID
-        data['Mean_Elapsed_Seconds'] = data.groupby('UID')['Elapsed_Seconds'].transform('mean')
+        elapsed_seconds_df = data[['UID', 'Elapsed_Seconds']]
+        rolling_mean = data.groupby('UID')['Elapsed_Seconds'].shift(periods = 1)
+        result_df = pd.concat([elapsed_seconds_df, rolling_mean], axis=1)
+        result_df.columns = ['UID', 'Elapsed_Seconds', 'Rolling_Mean']
+        rolling_mean = result_df.groupby('UID')['Rolling_Mean'].expanding().mean().reset_index(level=0, drop=True)
+        data['Mean_Elapsed_Seconds'] = rolling_mean
         
         #Создание столбцов с различными размерами окон средних
-        #размеры окон
-        window_sizes = [2, 4, 8, 16, 32, 64]
-        for window_size in window_sizes: 
-           #рассчитываем скользящее среднее
-           rolling_mean = data.groupby('UID')['Elapsed_Seconds'].rolling(window=window_size, min_periods=1).mean()
-           #преобразуем rolling_mean в DataFrame
-           rolling_mean_df = rolling_mean.reset_index(level=0, drop=True)
-           #добавляем столбец со скользящим средним в исходный DataFrame
-           data[f'Mean_{window_size}_Elapsed_Seconds'] = rolling_mean_df
+        #Размеры окон для скользящих средних
+        window_sizes = [2, 4, 8, 10, 16, 25, 32, 48, 64]
+        for window_size in window_sizes:
+          #Рассчитываем скользящее среднее
+          rolling_mean = data.groupby('UID')['Elapsed_Seconds'].shift(periods=1).rolling(window=window_size, min_periods=window_size).mean()
+          data[f'Mean_{window_size}_Elapsed_Seconds'] = rolling_mean
         
+        #Заполнение NaN и удаление 'datetime_column'
+        data = data.fillna(-1)
+        data = data.drop(columns=['datetime_column'])
+
         #Удаление значений Y
         data = data.drop(columns=['Elapsed_Seconds'])
         return data.loc[src_index]
@@ -117,7 +127,7 @@ class SKPredModel:
         return result
       
     def predict(self, prepared_data):
-        for key in self.model.feature_name():
+        for key in self.model.feature_name_:
           assert key in prepared_data.columns, f"{key} column missed in test_df"
           
         #Предсказание модели
@@ -125,9 +135,9 @@ class SKPredModel:
         return pd.Series(Y_pred)
 
 if __name__ == '__main__':
-    #Проверка созданного класса
-    model_path = 'model_1.pkl'
-    #model_path = 'model_2.pkl'
+    #Проверка созданного класса ('model_2.pkl' лучше 'model_1.pkl')
+    #model_path = 'model_1.pkl'
+    model_path = 'model_2.pkl'
     model = SKPredModel(model_path)
     
     test_df = pd.read_csv('C:\\Users\\Unicorn\\Desktop\\SK_LGBM_Klimova\\train_w_areas_st_till_june.csv', index_col=0)
@@ -137,3 +147,4 @@ if __name__ == '__main__':
     prepared_data = model.prepare_df(test_df)
     
     Y_pred = model.predict(prepared_data)
+    
